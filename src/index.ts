@@ -1,6 +1,7 @@
 import express from 'express';
 import { connection } from "./db";
 import { log } from 'console';
+import { z } from 'zod';
 const cors = require('cors');
 const app = express();
 const port = 3001;
@@ -30,26 +31,43 @@ app.post('/game', async (req, res) => {
     INSERT INTO games (image, title, genre, description, rating)
     VALUES (?, ?, ?, ?, ?);
   `;
+  
+  const game = z.object({
+    image: z.string().refine((value: string): boolean => value.includes('.jpg') || value.includes('.jpeg'), { message: 'Image must be of type .jpg or .jpeg'}),
+    title: z.string().min(3, { message: 'Title must have at least 3 characters'}),
+    genre: z.string().min(3, { message: 'Genre must have at least 3 characters'}),
+    description: z.string().min(50, { message: 'Description must have at least 50 characters'}),
+    rating: z.string().refine((value) => /^[1-5]$/.test(value), { message: 'Rating must be a single character between 1 and 5'}),
+  })
 
-  if (!image || !title || !genre || !description || !rating) {
-    res.status(400).send('Invalid data');
-    return;
-  };
+  try {
+    const validateData = game.parse({
+      image,
+      title,
+      genre,
+      description,
+      rating
+    });
 
-  connection.query(query, [image, title, genre, description, rating], (error, results) => {
-    if(error) {
-      res.status(500).json({error: 'Internal server error'});
-      return;
-    };
+  console.log('Validation sucessful', validateData)
 
-    res.json({message: "Game created", results})
-    }
-  );
+    connection.query(query, [image, title, genre, description, rating], (error, results) => {
+      if(error) {
+        res.status(500).json({error: 'Internal server error'});
+        return;
+      };
+  
+      res.json({message: "Game created", results})
+      }
+    );
+  } catch (error) {
+    console.log('Validation failed', error);
+    res.status(400).json({ error: 'Invalid data' });
+  }
 });
 
 app.delete('/games/:id', async (req, res) => {
   const gameId = req.params.id;
-  console.log(gameId);
   
   connection.query('DELETE from games where id = ?', [gameId], (error, results) => {
     if(error) {
@@ -64,7 +82,6 @@ app.delete('/games/:id', async (req, res) => {
 app.patch('/games/:id', async (req, res) => {
   const gameId = req.params.id;
   const {title, genre, description, rating} = req.body;
-  console.log(gameId);
   connection.query(
     'UPDATE games SET title = ?, genre = ?, description = ?, rating = ? where id = ?',
     [title, genre, description, rating, gameId],
